@@ -1,7 +1,13 @@
 import numpy as np
 import cv2
+import math
 from PIL import ImageGrab
 import time
+from skimage.transform import (hough_line, hough_line_peaks,
+                               probabilistic_hough_line)
+from skimage.feature import canny
+from skimage import data
+
 
 prevRoi = [[0,0],[1,0],[1,1],[0,1]]
 clockCenter = (0,0)
@@ -73,22 +79,63 @@ def process_img(original_image):
     processed_img = roi(processed_img, [vertices])
     
     #processed_img = cv2.GaussianBlur(processed_img, (3, 3), 0)
-    edges = cv2.Canny(processed_img,50, 150, apertureSize=3)
+    #edges = cv2.Canny(processed_img,50, 150, apertureSize=3)
 
-    minLineLength = 30
+    kernel = np.ones((4,4),np.uint8)
+    #edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel)
+    minLineLength = 60
     maxLineGap = 5
 
     #lines = cv2.HoughLines(edges, 1, np.pi/180, 60)
-    # lines = cv2.HoughLinesP(edges, 1, np.pi/180, 60, minLineLength, maxLineGap)
+    #lines = cv2.HoughLinesP(edges, 1, np.pi/180, 60, minLineLength, maxLineGap)
     #each hand has a x0,x1,y0,y1 and an angle where 0 is hours, 1 is minutes, 2 is seconds
-    clockhands = [[(0,0), (1,1), np.pi], [(0,0), (1,1), np.pi], [(0,0), (1,1), np.pi]]
-    maxLine = 0
-    minLine = 1000
-    # x, y = clockCenter
-    # if lines is not None:
-    #     for line in lines:
-    #         for x1,y1,x2,y2 in line:
-    #             cv2.line(processed_img,(x1,y1),(x,y),(0,0,255),2)
+
+    #edges = canny(processed_img, 2, 1, 25)
+    edges = auto_canny(processed_img)
+    lines = probabilistic_hough_line(edges, threshold=10, line_length=5, line_gap=3)
+
+    #clockhands = [[(0,0), (1,1), np.pi], [(0,0), (1,1), np.pi], [(0,0), (1,1), np.pi]]
+    #maxLine = 0
+    #minLine = 1000
+    lineCoords = [[]]
+    x, y = clockCenter
+    lineAngs = []
+    newAng = True
+    maxima1 = 0
+    maxima2 = 0
+    clockhands = [0, 0]
+    if lines is not None:
+        for line in lines:
+            # for x1,y1,x2,y2 in line:
+            p0, p1 = line
+            x1, y1 = p0
+            x2, y2 = p1
+
+            lenLine = ((x2-x1) ** 2 + (y2-y1) ** 2) ** 0.5
+
+            if(abs(x-x1) < 15 and abs(y-y1) < 15 and lenLine > minLineLength):
+                lineCoords.append([(x1,y1), (x2,y2)])
+                if(x2-x1 == 0):
+                    ang = 0
+                else:
+                    ang = math.atan2((y2-y1),(x2-x1))
+
+                if(lenLine > maxima1):
+                    maxima1 = lenLine
+                    clockhands[0] = ang * 180 / math.pi
+                elif(lenLine > maxima2):
+                    maxima2 = lenLine
+                    clockhands[1] = ang * 180 / math.pi
+
+                for lineAng in lineAngs:
+                    if(abs(abs(ang)- abs(lineAng)) < 5):
+                        newAng = False
+
+                if(newAng):
+                    lineAngs.append(ang)                           
+                    cv2.line(processed_img,(x1,y1),(x2,y2),(0,0,255),2)
+                    newAng = True
+
             # for rho,theta in line:
             #     a = np.cos(theta)
             #     b = np.sin(theta)
@@ -101,8 +148,14 @@ def process_img(original_image):
             #     y2 = int(y0 - 1000*(a))
 
             #     lenLine = ((x2-x1) ** 2 + (y2-y1) ** 2) ** 0.5
+            #     if(abs(x-x1) < 25 and abs(y-y1) < 25):
+            #         cv2.line(processed_img,(x1,y1),(x2,y2),(0,255,0),2)
 
-            #     cv2.line(original_image,(x1,y1),(x2,y2),(0,255,0),2)
+    # clockhands[0] = clockhands[0] - 90
+    # clockhands[1] = clockhands[1] - 90
+    
+    print(clockhands)
+
 
     #kernel = np.ones((5,5),np.uint8)
     #edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel )
